@@ -46,10 +46,16 @@ docker run --rm -v "$PWD:/work" drevops-pack:dev drevops my-tool --help
 
 ## running tests
 
-there are no unit tests yet (phpunit isn't bundled). validation is:
+Dispatcher and host-wrapper tests (no Docker):
 
-1. `docker run --rm ... drevops doctor` — all tools check out
-2. `docker run --rm -v "$PWD:/work" ... drevops <tool> <command>` — each command works
+```bash
+bash tests/run.sh
+```
+
+Image smoke tests:
+
+1. `docker run --rm ... doctor` — all tools check out
+2. `docker run --rm -v "$PWD:/work" ... <tool> <command>` — each command works
 
 ## submitting changes
 

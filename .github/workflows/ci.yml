@@ -13,20 +13,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Dispatcher & wrapper tests
+        run: bash tests/run.sh
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build image
         run: docker build -t drevops-pack:ci .
 
-      - name: Smoke test — doctor
-        run: docker run --rm drevops-pack:ci drevops doctor
+      - name: Smoke test — default CMD is help
+        run: docker run --rm drevops-pack:ci | grep -q Usage
 
-      - name: Smoke test — list
+      - name: Smoke test — args replace CMD
+        run: docker run --rm drevops-pack:ci list
+
+      - name: Smoke test — extra drevops token is stripped
         run: docker run --rm drevops-pack:ci drevops list
 
+      - name: Smoke test — doctor
+        run: docker run --rm drevops-pack:ci doctor
+
       - name: Smoke test — version
-        run: docker run --rm drevops-pack:ci drevops version
+        run: docker run --rm drevops-pack:ci version
 
   publish:
     name: Publish to GitHub Packages

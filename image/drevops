@@ -2,6 +2,9 @@
 #
 # drevops - single entry point for every bundled DrevOps tool.
 #
+# Looks up executables in $DREVOPS_PACK_HOME/commands.tsv (tool, command, path)
+# and tool metadata in tools.tsv (name, version, kind, package, status).
+#
 set -Eeuo pipefail
 
 PACK_HOME="${DREVOPS_PACK_HOME:-/opt/drevops}"
@@ -20,31 +23,104 @@ Usage:
   drevops doctor                       verify the bundle is healthy
   drevops version                      show bundled tool versions
   drevops help                         show this help
+
+Examples:
+  drevops list
+  drevops ci                           # unique command names need no tool prefix
+  drevops vortex-tooling ci            # disambiguate / pick a tool
+  drevops vortex-tooling/ci --flag
+
+Docker:
+  This image already starts with `drevops` (ENTRYPOINT). Extra args replace
+  the default `help` command, so these are equivalent:
+    docker run --rm IMAGE list
+    docker run --rm IMAGE drevops list
 USAGE
 }
 
 require_manifest() {
   [[ -r "$COMMANDS_FILE" && -r "$TOOLS_FILE" ]] \
-    || die "manifest not found in ${PACK_HOME} (broken build?)"
+    || die "manifest not found in ${PACK_HOME} (broken build?). Expected commands.tsv and tools.tsv."
 }
 
+# Prints "tool<TAB>path" for each matching command. Skips blank/malformed rows.
 lookup() {
-  # $1 = tool (may be empty), $2 = command name; prints matching paths.
-  awk -F'\t' -v t="$1" -v c="$2" '$2 == c && (t == "" || $1 == t) { print $3 }' "$COMMANDS_FILE"
+  local tool="$1" command="$2"
+  [[ -n "$command" ]] || return 0
+  awk -F '\t' -v t="$tool" -v c="$command" '
+    { gsub(/\r/, "") }
+    NF < 3 || $1 == "" || $2 == "" || $3 == "" { next }
+    $2 == c && (t == "" || $1 == t) && !seen[$1]++ { print $1 "\t" $3 }
+  ' "$COMMANDS_FILE"
+}
+
+tool_status() {
+  # Prints status (ok/unavailable/...) and returns 0 if the tool exists.
+  awk -F '\t' -v t="$1" '
+    { gsub(/\r/, "") }
+    NF >= 5 && $1 == t { print $5; found = 1; exit }
+    END { exit !found }
+  ' "$TOOLS_FILE"
+}
+
+tool_kind() {
+  awk -F '\t' -v t="$1" '
+    { gsub(/\r/, "") }
+    NF >= 5 && $1 == t { print $3; exit }
+  ' "$TOOLS_FILE"
+}
+
+tool_package() {
+  awk -F '\t' -v t="$1" '
+    { gsub(/\r/, "") }
+    NF >= 5 && $1 == t { print $4; exit }
+  ' "$TOOLS_FILE"
 }
 
 is_tool() {
-  awk -F'\t' -v t="$1" '$1 == t && $5 == "ok" { found = 1 } END { exit !found }' "$TOOLS_FILE"
+  local status
+  status="$(tool_status "$1" 2>/dev/null)" || return 1
+  [[ "$status" == "ok" ]]
+}
+
+commands_for_tool() {
+  awk -F '\t' -v t="$1" '
+    { gsub(/\r/, "") }
+    NF >= 3 && $1 == t && $2 != "" && !seen[$2]++ { print $2 }
+  ' "$COMMANDS_FILE"
+}
+
+print_command_table() {
+  local tool
+  tool="$1"
+  if [[ -z "$tool" ]]; then
+    awk -F '\t' '
+      { gsub(/\r/, "") }
+      NF >= 3 && $1 != "" && $2 != "" { printf "  %s/%s\n", $1, $2 }
+    ' "$COMMANDS_FILE"
+  else
+    awk -F '\t' -v t="$tool" '
+      { gsub(/\r/, "") }
+      NF >= 3 && $1 == t && $2 != "" { printf "  %s/%s\n", $1, $2 }
+    ' "$COMMANDS_FILE"
+  fi
 }
 
 cmd_list() {
   local name version kind package status tool command path
   printf '%-20s %-10s %-17s %s\n' TOOL VERSION KIND STATUS
   while IFS=$'\t' read -r name version kind package status; do
+    name="${name%$'\r'}"
+    status="${status%$'\r'}"
+    [[ -n "$name" && -n "$status" && "$name" != \#* && -n "$kind" && -n "$package" ]] || continue
     printf '%-20s %-10s %-17s %s\n' "$name" "$version" "$kind" "$status"
   done < "$TOOLS_FILE"
   printf '\n%-20s %s\n' TOOL COMMAND
   while IFS=$'\t' read -r tool command path; do
+    tool="${tool%$'\r'}"
+    command="${command%$'\r'}"
+    path="${path%$'\r'}"
+    [[ -n "$tool" && -n "$command" && -n "$path" && "$tool" != \#* ]] || continue
     printf '%-20s %s\n' "$tool" "$command"
   done < "$COMMANDS_FILE"
 }
@@ -52,6 +128,7 @@ cmd_list() {
 cmd_version() {
   local name version kind package status
   while IFS=$'\t' read -r name version kind package status; do
+    status="${status%$'\r'}"
     [[ "$status" == "ok" ]] && printf '%s %s (%s)\n' "$name" "$version" "$package"
   done < "$TOOLS_FILE"
   return 0
@@ -69,7 +146,16 @@ cmd_doctor() {
     fi
   done
 
+  if [[ ! -s "$COMMANDS_FILE" ]]; then
+    printf 'FAIL  commands.tsv is empty (no executables in this bundle)\n'
+    failures=$((failures + 1))
+  fi
+
   while IFS=$'\t' read -r tool command path; do
+    tool="${tool%$'\r'}"
+    command="${command%$'\r'}"
+    path="${path%$'\r'}"
+    [[ -n "$tool" && -n "$command" && -n "$path" ]] || continue
     if [[ -x "$path" ]]; then
       printf 'ok    %s/%s\n' "$tool" "$command"
     else
@@ -79,17 +165,106 @@ cmd_doctor() {
   done < "$COMMANDS_FILE"
 
   while IFS=$'\t' read -r name version kind package status; do
+    status="${status%$'\r'}"
+    name="${name%$'\r'}"
+    [[ -n "$name" && "$name" != \#* && -n "$status" ]] || continue
     [[ "$status" == "ok" ]] || printf 'warn  %s (%s) was unavailable at build time\n' "$name" "$package"
   done < "$TOOLS_FILE"
 
   (( failures == 0 ))
 }
 
-main() {
-  local tool="" name="" shift_n=1
-  local -a found=()
+# Human-friendly failure when lookup found nothing.
+explain_unknown() {
+  local tool="$1" name="$2" status kind package cmds
 
-  if [[ $# -eq 0 ]]; then usage; exit 0; fi
+  if [[ -n "$tool" ]]; then
+    if ! status="$(tool_status "$tool")"; then
+      die "unknown tool '${tool}'. Run 'drevops list' to see bundled tools."
+    fi
+    if [[ "$status" != "ok" ]]; then
+      die "tool '${tool}' was not available when this image was built (optional). Run 'drevops list'."
+    fi
+    cmds="$(commands_for_tool "$tool")"
+    if [[ -z "$cmds" ]]; then
+      kind="$(tool_kind "$tool")"
+      package="$(tool_package "$tool")"
+      die "tool '${tool}' (${package:-${kind}}) has no CLI commands. It is bundled as a library."
+    fi
+    if [[ -z "$name" ]]; then
+      printf 'drevops: '\''%s'\'' is a tool, not a command. Available commands:\n' "$tool" >&2
+      print_command_table "$tool" >&2
+      printf 'Usage: drevops %s <command> [args...]\n' "$tool" >&2
+      exit 1
+    fi
+    printf 'drevops: unknown command '\''%s'\'' in tool '\''%s'\''. Available commands:\n' "$name" "$tool" >&2
+    print_command_table "$tool" >&2
+    exit 1
+  fi
+
+  # Bare token: might be a tool name used without a command.
+  if status="$(tool_status "$name")"; then
+    if [[ "$status" != "ok" ]]; then
+      die "tool '${name}' was not available when this image was built (optional). Run 'drevops list'."
+    fi
+    cmds="$(commands_for_tool "$name")"
+    if [[ -z "$cmds" ]]; then
+      kind="$(tool_kind "$name")"
+      package="$(tool_package "$name")"
+      die "tool '${name}' (${package:-${kind}}) has no CLI commands. It is bundled as a library."
+    fi
+    printf 'drevops: '\''%s'\'' is a tool, not a command. Available commands:\n' "$name" >&2
+    print_command_table "$name" >&2
+    printf 'Usage: drevops %s <command> [args...]\n' "$name" >&2
+    exit 1
+  fi
+
+  die "unknown command '${name}'. Run 'drevops list' to see bundled commands."
+}
+
+explain_ambiguous() {
+  local name="$1"
+  printf 'drevops: '\''%s'\'' is provided by more than one tool:\n' "$name" >&2
+  awk -F '\t' -v c="$name" '
+    { gsub(/\r/, "") }
+    NF >= 3 && $2 == c && !seen[$1]++ { printf "  %s/%s\n", $1, $2 }
+  ' "$COMMANDS_FILE" >&2
+  printf 'Pick one:\n  drevops <tool> %s [args...]\n  drevops <tool>/%s [args...]\n' "$name" "$name" >&2
+  exit 1
+}
+
+run_command() {
+  local path="$1"
+  shift
+  [[ -n "$path" ]] || die "internal error: empty executable path."
+  if [[ ! -e "$path" ]]; then
+    die "executable is missing (${path}). Run 'drevops doctor' to inspect the bundle."
+  fi
+  if [[ ! -x "$path" ]]; then
+    die "executable is not runnable (${path}). Run 'drevops doctor' to inspect the bundle."
+  fi
+  exec "$path" "$@"
+}
+
+main() {
+  local tool="" name="" shift_n=1 status
+  local -a found=()
+  local row path
+
+  # `docker run IMAGE drevops <cmd>` replaces CMD with "drevops <cmd>", so the
+  # dispatcher sees an extra leading "drevops". Strip one copy.
+  if [[ $# -gt 0 && "$1" == "drevops" ]]; then
+    shift
+  fi
+
+  if [[ $# -gt 0 && "$1" == "--" ]]; then
+    shift
+  fi
+
+  if [[ $# -eq 0 ]]; then
+    usage
+    exit 0
+  fi
 
   case "$1" in
     help|-h|--help)    usage; exit 0 ;;
@@ -103,23 +278,46 @@ main() {
   if [[ "$1" == */* ]]; then
     tool="${1%%/*}"
     name="${1#*/}"
+    if [[ -z "$tool" || -z "$name" || "$name" == */* ]]; then
+      die "invalid command '${1}'. Use '<tool>/<command>' or '<tool> <command>'."
+    fi
   else
     name="$1"
   fi
 
   mapfile -t found < <(lookup "$tool" "$name")
+  # Drop blank lines mapfile may keep from a trailing newline-only read.
+  if [[ ${#found[@]} -eq 1 && -z "${found[0]}" ]]; then
+    found=()
+  fi
 
-  if [[ ${#found[@]} -eq 0 && -z "$tool" && $# -ge 2 ]] && is_tool "$1"; then
-    tool="$1"
-    name="$2"
-    shift_n=2
-    mapfile -t found < <(lookup "$tool" "$name")
+  # Tool-less invocation of a unique command. If $1 is a tool, take the next
+  # token as the command (or explain that the tool was named with no command).
+  if [[ ${#found[@]} -eq 0 && -z "$tool" ]]; then
+    if status="$(tool_status "$1")"; then
+      if [[ $# -ge 2 ]]; then
+        tool="$1"
+        name="$2"
+        shift_n=2
+        mapfile -t found < <(lookup "$tool" "$name")
+        if [[ ${#found[@]} -eq 1 && -z "${found[0]}" ]]; then
+          found=()
+        fi
+      else
+        explain_unknown "" "$1"
+      fi
+    fi
   fi
 
   case ${#found[@]} in
-    0) die "unknown command '${tool:+${tool} }${name}'. Run 'drevops list'." ;;
-    1) shift "$shift_n"; exec "${found[0]}" "$@" ;;
-    *) die "'${name}' is provided by several tools; use '<tool> ${name}' or '<tool>/${name}'. Run 'drevops list'." ;;
+    0) explain_unknown "$tool" "$name" ;;
+    1)
+      row="${found[0]}"
+      path="${row#*$'\t'}"
+      shift "$shift_n"
+      run_command "$path" "$@"
+      ;;
+    *) explain_ambiguous "$name" ;;
   esac
 }
 

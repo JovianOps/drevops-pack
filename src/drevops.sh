@@ -16,6 +16,8 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 127
 fi
 
+# Image ENTRYPOINT is `drevops`; "$@" replaces CMD (default: help).
+# `--` keeps flags like --help from being parsed by `docker run`.
 args=(run --rm --interactive
   --volume "${PWD}:/work" --workdir /work
   --user "$(id -u):$(id -g)" --env HOME=/tmp)
@@ -37,4 +39,4 @@ for var in ${DREVOPS_ENV_PASSTHROUGH:-}; do
   args+=(--env "$var")
 done
 
-exec docker "${args[@]}" "$IMAGE" "$@"
+exec docker "${args[@]}" -- "$IMAGE" "$@"

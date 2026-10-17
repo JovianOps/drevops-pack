@@ -15,8 +15,11 @@ instead of installing 7+ drevops packages individually (with all their composer 
 docker build -t drevops-pack .
 
 # use it — works from any directory
-docker run --rm -it -v "$PWD:/work" drevops-pack drevops list
-docker run --rm -it -v "$PWD:/work" drevops-pack drevops vortex-tooling ci
+# ENTRYPOINT is already `drevops`; extra args replace the default `help` CMD.
+docker run --rm -it -v "${PWD}:/work" drevops-pack list
+docker run --rm -it -v "${PWD}:/work" drevops-pack vortex-tooling ci
+# `drevops <cmd>` also works — the dispatcher strips the extra token.
+docker run --rm -it -v "${PWD}:/work" drevops-pack drevops list
 ```
 
 ## the drevops command
