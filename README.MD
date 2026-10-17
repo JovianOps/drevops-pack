@@ -73,12 +73,17 @@ env vars:
 `src/drevops.ps1` is the PowerShell equivalent of `drevops.sh`:
 
 ```powershell
-# from the repo src dir
-.\drevops.ps1 status
+# from anywhere on your machine (full path required):
+pwsh -File "C:\Users\RDC\Desktop\drevops-pack\src\drevops.ps1" list
 
-# or symlink to a PATH dir for global use
-New-Item -ItemType SymbolicLink -Path "$HOME/bin/drevops.ps1" -Target "C:\path\to\repo\src\drevops.ps1"
-drevops status
+# to type `drevops` directly, create a shim:
+$Shim = "$HOME\bin\drevops.ps1"
+@'
+param([Parameter(ValueFromRemainingArguments=$true)][string[]]$args)
+& "C:\Users\RDC\Desktop\drevops-pack\src\drevops.ps1" @args
+'@ | Set-Content $Shim
+$env:PATH += ";$HOME\bin"
+drevops list  # now works
 ```
 
 env vars are the same (`$env:DREVOPS_IMAGE`, `$env:DREVOPS_DOCKER`, `$env:DREVOPS_ENV_PASSTHROUGH`).
