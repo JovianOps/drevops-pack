@@ -68,6 +68,18 @@ env vars:
 - `DREVOPS_DOCKER=1` — also mount the Docker socket (for tools that call docker)
 - `DREVOPS_ENV_PASSTHROUGH` — space-separated env var names to forward into the container
 
+### PowerShell wrapper
+
+`src/drevops.ps1` is the PowerShell equivalent of `drevops.sh`:
+
+```powershell
+# symlink or call directly
+.\drevops.ps1 status
+drevops status  # if symlinked to a dir on your PATH
+```
+
+env vars are the same (`$env:DREVOPS_IMAGE`, `$env:DREVOPS_DOCKER`, `$env:DREVOPS_ENV_PASSTHROUGH`).
+
 ## what's bundled
 
 see [`tools.json`](tools.json) for the full list. each entry is a composer package from the `drevops/*` org:
