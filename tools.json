@@ -17,7 +17,7 @@
       "name": "behat-steps",
       "kind": "composer-lib",
       "package": "drevops/behat-steps",
-      "version": "*"
+      "version": "^3.14.4"
     },
     {
       "name": "behat-screenshot",
