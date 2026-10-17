@@ -73,9 +73,12 @@ env vars:
 `src/drevops.ps1` is the PowerShell equivalent of `drevops.sh`:
 
 ```powershell
-# symlink or call directly
+# from the repo src dir
 .\drevops.ps1 status
-drevops status  # if symlinked to a dir on your PATH
+
+# or symlink to a PATH dir for global use
+New-Item -ItemType SymbolicLink -Path "$HOME/bin/drevops.ps1" -Target "C:\path\to\repo\src\drevops.ps1"
+drevops status
 ```
 
 env vars are the same (`$env:DREVOPS_IMAGE`, `$env:DREVOPS_DOCKER`, `$env:DREVOPS_ENV_PASSTHROUGH`).
