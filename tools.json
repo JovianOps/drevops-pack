@@ -1,0 +1,57 @@
+{
+  "tools": [
+    {
+      "name": "vortex-tooling",
+      "kind": "composer-scripts",
+      "package": "drevops/vortex-tooling",
+      "version": "^1.1",
+      "scripts_dir": "src"
+    },
+    {
+      "name": "eddy-tooling",
+      "kind": "composer-bin",
+      "package": "drevops/eddy-tooling",
+      "version": "^1.0"
+    },
+    {
+      "name": "behat-steps",
+      "kind": "composer-lib",
+      "package": "drevops/behat-steps",
+      "version": "*"
+    },
+    {
+      "name": "behat-screenshot",
+      "kind": "composer-lib",
+      "package": "drevops/behat-screenshot",
+      "version": "*"
+    },
+    {
+      "name": "str2name",
+      "kind": "composer-bin",
+      "package": "drevops/str2name",
+      "version": "*",
+      "optional": true
+    },
+    {
+      "name": "shellvar",
+      "kind": "composer-bin",
+      "package": "drevops/shellvar",
+      "version": "*",
+      "optional": true
+    },
+    {
+      "name": "customizer",
+      "kind": "composer-lib",
+      "package": "drevops/customizer",
+      "version": "*",
+      "optional": true
+    },
+    {
+      "name": "drupal-helpers",
+      "kind": "composer-lib",
+      "package": "drevops/drupal-helpers",
+      "version": "*",
+      "optional": true
+    }
+  ]
+}

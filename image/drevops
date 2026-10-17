@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+#
+# drevops - single entry point for every bundled DrevOps tool.
+#
+set -Eeuo pipefail
+
+PACK_HOME="${DREVOPS_PACK_HOME:-/opt/drevops}"
+COMMANDS_FILE="${PACK_HOME}/commands.tsv"
+TOOLS_FILE="${PACK_HOME}/tools.tsv"
+
+die() { printf 'drevops: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  drevops <command> [args...]          run a command (when the name is unique)
+  drevops <tool> <command> [args...]   run a command from a specific tool
+  drevops <tool>/<command> [args...]   same, single-token form
+  drevops list                         show bundled tools and commands
+  drevops doctor                       verify the bundle is healthy
+  drevops version                      show bundled tool versions
+  drevops help                         show this help
+USAGE
+}
+
+require_manifest() {
+  [[ -r "$COMMANDS_FILE" && -r "$TOOLS_FILE" ]] \
+    || die "manifest not found in ${PACK_HOME} (broken build?)"
+}
+
+lookup() {
+  # $1 = tool (may be empty), $2 = command name; prints matching paths.
+  awk -F'\t' -v t="$1" -v c="$2" '$2 == c && (t == "" || $1 == t) { print $3 }' "$COMMANDS_FILE"
+}
+
+is_tool() {
+  awk -F'\t' -v t="$1" '$1 == t && $5 == "ok" { found = 1 } END { exit !found }' "$TOOLS_FILE"
+}
+
+cmd_list() {
+  local name version kind package status tool command path
+  printf '%-20s %-10s %-17s %s\n' TOOL VERSION KIND STATUS
+  while IFS=$'\t' read -r name version kind package status; do
+    printf '%-20s %-10s %-17s %s\n' "$name" "$version" "$kind" "$status"
+  done < "$TOOLS_FILE"
+  printf '\n%-20s %s\n' TOOL COMMAND
+  while IFS=$'\t' read -r tool command path; do
+    printf '%-20s %s\n' "$tool" "$command"
+  done < "$COMMANDS_FILE"
+}
+
+cmd_version() {
+  local name version kind package status
+  while IFS=$'\t' read -r name version kind package status; do
+    [[ "$status" == "ok" ]] && printf '%s %s (%s)\n' "$name" "$version" "$package"
+  done < "$TOOLS_FILE"
+  return 0
+}
+
+cmd_doctor() {
+  local failures=0 dep tool command path name version kind package status
+
+  for dep in bash git jq php; do
+    if command -v "$dep" >/dev/null 2>&1; then
+      printf 'ok    %s\n' "$dep"
+    else
+      printf 'FAIL  %s is not installed\n' "$dep"
+      failures=$((failures + 1))
+    fi
+  done
+
+  while IFS=$'\t' read -r tool command path; do
+    if [[ -x "$path" ]]; then
+      printf 'ok    %s/%s\n' "$tool" "$command"
+    else
+      printf 'FAIL  %s/%s is not executable (%s)\n' "$tool" "$command" "$path"
+      failures=$((failures + 1))
+    fi
+  done < "$COMMANDS_FILE"
+
+  while IFS=$'\t' read -r name version kind package status; do
+    [[ "$status" == "ok" ]] || printf 'warn  %s (%s) was unavailable at build time\n' "$name" "$package"
+  done < "$TOOLS_FILE"
+
+  (( failures == 0 ))
+}
+
+main() {
+  local tool="" name="" shift_n=1
+  local -a found=()
+
+  if [[ $# -eq 0 ]]; then usage; exit 0; fi
+
+  case "$1" in
+    help|-h|--help)    usage; exit 0 ;;
+    list|ls)           require_manifest; cmd_list; exit 0 ;;
+    version|-V|--version) require_manifest; cmd_version; exit 0 ;;
+    doctor)            require_manifest; if cmd_doctor; then exit 0; else exit 1; fi ;;
+  esac
+
+  require_manifest
+
+  if [[ "$1" == */* ]]; then
+    tool="${1%%/*}"
+    name="${1#*/}"
+  else
+    name="$1"
+  fi
+
+  mapfile -t found < <(lookup "$tool" "$name")
+
+  if [[ ${#found[@]} -eq 0 && -z "$tool" && $# -ge 2 ]] && is_tool "$1"; then
+    tool="$1"
+    name="$2"
+    shift_n=2
+    mapfile -t found < <(lookup "$tool" "$name")
+  fi
+
+  case ${#found[@]} in
+    0) die "unknown command '${tool:+${tool} }${name}'. Run 'drevops list'." ;;
+    1) shift "$shift_n"; exec "${found[0]}" "$@" ;;
+    *) die "'${name}' is provided by several tools; use '<tool> ${name}' or '<tool>/${name}'. Run 'drevops list'." ;;
+  esac
+}
+
+main "$@"
