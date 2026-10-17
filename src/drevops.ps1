@@ -37,16 +37,16 @@ $DockerArgs = @(
 )
 
 # Only set --user on Unix Linux (Docker Desktop on Windows/Mac handles ownership)
-$IsWindows = [System.Environment]::OSVersion.Platform -eq 'Win32NT'
+$RunOnWindows = [System.Environment]::OSVersion.Platform -eq 'Win32NT'
 $IsMac = (Test-Path /usr/bin/uname) -and ((uname -s) -match 'Darwin')
-if (-not $IsWindows -and -not $IsMac) {
+if (-not $RunOnWindows -and -not $IsMac) {
     $DockerArgs += "--user=$(id -u):$(id -g)"
 }
 
 # TTY if stdin AND stdout are interactive
 if ($Host.Name -ne 'ConsoleHost') {
     # Non-interactive (e.g. redirected output) — skip TTY.
-} elseif ($IsWindows) {
+} elseif ($RunOnWindows) {
     # Windows: TTY detection is unreliable; skip --tty.
 } else {
     $DockerArgs += '--tty'
