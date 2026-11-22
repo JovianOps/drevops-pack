@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.28
+# syntax=docker/dockerfile:1.29
 ARG PHP_VERSION=8.3
 
 # ---- build: resolve and install every tool from tools.json -------------------
